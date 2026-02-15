@@ -14,7 +14,12 @@ import com.stylering.chat.ChatMessageRole;
 import com.stylering.chat.ChatSession;
 import com.stylering.chat.ChatSessionRepository;
 import com.stylering.chat.ChatSessionStatus;
+import com.stylering.llm.LlmClientException;
+import com.stylering.llm.QuestionLlmClient;
+import com.stylering.ratelimit.UserRateLimiter;
 import com.stylering.user.UserAccountRepository;
+import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +55,12 @@ class ChatControllerIntegrationTest {
     @Autowired
     private StubFirebaseTokenVerifier firebaseTokenVerifier;
 
+    @Autowired
+    private StubQuestionLlmClient stubQuestionLlmClient;
+
+    @Autowired
+    private StubUserRateLimiter stubUserRateLimiter;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -59,6 +70,8 @@ class ChatControllerIntegrationTest {
                 .build();
 
         firebaseTokenVerifier.clear();
+        stubQuestionLlmClient.clear();
+        stubUserRateLimiter.clear();
         chatMessageRepository.deleteAll();
         chatSessionRepository.deleteAll();
         userAccountRepository.deleteAll();
@@ -83,6 +96,33 @@ class ChatControllerIntegrationTest {
     @Test
     void postMessageToOwnSessionSuccessStoresTwoMessages() throws Exception {
         firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubQuestionLlmClient.enqueue("어떤 핏을 가장 선호해요?");
+        Long sessionId = createSession("token-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                                {"sessionId":%d,"content":"hello"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId))
+                .andExpect(jsonPath("$.assistantContent").value("어떤 핏을 가장 선호해요?"))
+                .andExpect(jsonPath("$.userMessageId").isNumber())
+                .andExpect(jsonPath("$.assistantMessageId").isNumber());
+
+        List<ChatMessage> messages = chatMessageRepository.findBySession_IdOrderByIdAsc(sessionId);
+        org.junit.jupiter.api.Assertions.assertEquals(2, messages.size());
+        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.USER, messages.get(0).getRole());
+        org.junit.jupiter.api.Assertions.assertEquals("hello", messages.get(0).getContent());
+        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.ASSISTANT, messages.get(1).getRole());
+        org.junit.jupiter.api.Assertions.assertEquals("어떤 핏을 가장 선호해요?", messages.get(1).getContent());
+    }
+
+    @Test
+    void postMessageWhenLlmFailsReturnsFallbackQuestion() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubQuestionLlmClient.setShouldFail(true);
         Long sessionId = createSession("token-user-a");
 
         mockMvc.perform(post("/api/v1/chat/messages")
@@ -92,17 +132,7 @@ class ChatControllerIntegrationTest {
                                 {"sessionId":%d,"content":"hello"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionId").value(sessionId))
-                .andExpect(jsonPath("$.assistantContent").value("echo: hello"))
-                .andExpect(jsonPath("$.userMessageId").isNumber())
-                .andExpect(jsonPath("$.assistantMessageId").isNumber());
-
-        List<ChatMessage> messages = chatMessageRepository.findBySession_IdOrderByIdAsc(sessionId);
-        org.junit.jupiter.api.Assertions.assertEquals(2, messages.size());
-        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.USER, messages.get(0).getRole());
-        org.junit.jupiter.api.Assertions.assertEquals("hello", messages.get(0).getContent());
-        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.ASSISTANT, messages.get(1).getRole());
-        org.junit.jupiter.api.Assertions.assertEquals("echo: hello", messages.get(1).getContent());
+                .andExpect(jsonPath("$.assistantContent").value("요즘 가장 자주 입는 스타일을 한 가지로 말해줄래요?"));
     }
 
     @Test
@@ -160,6 +190,31 @@ class ChatControllerIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
+    @Test
+    void postMessageWhenRateLimitExceededReturnsTooManyRequests() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubQuestionLlmClient.enqueue("첫 번째 질문입니다?");
+        stubUserRateLimiter.setMaxRequestsPerMinute(1);
+        Long sessionId = createSession("token-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"content":"first"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"content":"second"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMIT_EXCEEDED"));
+    }
+
     private Long createSession(String token) throws Exception {
         mockMvc.perform(post("/api/v1/chat/sessions")
                         .header("Authorization", "Bearer " + token))
@@ -180,6 +235,18 @@ class ChatControllerIntegrationTest {
         @Primary
         StubFirebaseTokenVerifier stubFirebaseTokenVerifier() {
             return new StubFirebaseTokenVerifier();
+        }
+
+        @Bean
+        @Primary
+        StubQuestionLlmClient stubQuestionLlmClient() {
+            return new StubQuestionLlmClient();
+        }
+
+        @Bean
+        @Primary
+        StubUserRateLimiter stubUserRateLimiter() {
+            return new StubUserRateLimiter();
         }
     }
 
@@ -209,6 +276,72 @@ class ChatControllerIntegrationTest {
             }
 
             return new VerifiedFirebaseToken(uid);
+        }
+    }
+
+    static class StubQuestionLlmClient implements QuestionLlmClient {
+
+        private final ArrayDeque<String> queuedQuestions = new ArrayDeque<>();
+        private volatile boolean shouldFail;
+
+        void enqueue(String question) {
+            queuedQuestions.addLast(question);
+        }
+
+        void setShouldFail(boolean shouldFail) {
+            this.shouldFail = shouldFail;
+        }
+
+        void clear() {
+            shouldFail = false;
+            queuedQuestions.clear();
+        }
+
+        @Override
+        public String generateNextQuestion(String systemPrompt, String userPrompt) {
+            if (shouldFail) {
+                throw new LlmClientException("forced failure");
+            }
+            if (!queuedQuestions.isEmpty()) {
+                return queuedQuestions.removeFirst();
+            }
+            return "다음으로 어떤 색상을 선호하나요?";
+        }
+    }
+
+    static class StubUserRateLimiter implements UserRateLimiter {
+
+        private final Map<Long, ArrayDeque<Long>> userWindows = new ConcurrentHashMap<>();
+        private volatile int maxRequestsPerMinute = 1000;
+
+        void setMaxRequestsPerMinute(int maxRequestsPerMinute) {
+            this.maxRequestsPerMinute = maxRequestsPerMinute;
+        }
+
+        void clear() {
+            maxRequestsPerMinute = 1000;
+            userWindows.clear();
+        }
+
+        @Override
+        public void checkLimit(Long userId) {
+            long now = Instant.now().toEpochMilli();
+            long threshold = now - 60_000L;
+            ArrayDeque<Long> window = userWindows.computeIfAbsent(userId, ignored -> new ArrayDeque<>());
+
+            synchronized (window) {
+                while (!window.isEmpty() && window.peekFirst() < threshold) {
+                    window.removeFirst();
+                }
+                if (window.size() >= maxRequestsPerMinute) {
+                    throw new com.stylering.common.error.ApiClientException(
+                            org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                            "RATE_LIMIT_EXCEEDED",
+                            "Rate limit exceeded"
+                    );
+                }
+                window.addLast(now);
+            }
         }
     }
 }

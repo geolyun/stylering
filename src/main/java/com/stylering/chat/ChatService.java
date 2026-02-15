@@ -1,6 +1,8 @@
 package com.stylering.chat;
 
 import com.stylering.common.error.ApiClientException;
+import com.stylering.llm.NextQuestionGenerator;
+import com.stylering.ratelimit.UserRateLimiter;
 import com.stylering.user.UserAccount;
 import com.stylering.user.UserAccountService;
 import java.time.Instant;
@@ -14,15 +16,21 @@ public class ChatService {
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserAccountService userAccountService;
+    private final NextQuestionGenerator nextQuestionGenerator;
+    private final UserRateLimiter userRateLimiter;
 
     public ChatService(
             ChatSessionRepository chatSessionRepository,
             ChatMessageRepository chatMessageRepository,
-            UserAccountService userAccountService
+            UserAccountService userAccountService,
+            NextQuestionGenerator nextQuestionGenerator,
+            UserRateLimiter userRateLimiter
     ) {
         this.chatSessionRepository = chatSessionRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.userAccountService = userAccountService;
+        this.nextQuestionGenerator = nextQuestionGenerator;
+        this.userRateLimiter = userRateLimiter;
     }
 
     @Transactional
@@ -35,6 +43,8 @@ public class ChatService {
     @Transactional
     public AssistantReply postUserMessage(String firebaseUid, Long sessionId, String content) {
         UserAccount userAccount = userAccountService.getByFirebaseUid(firebaseUid);
+        userRateLimiter.checkLimit(userAccount.getId());
+
         ChatSession session = chatSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ApiClientException(
                         HttpStatus.NOT_FOUND,
@@ -50,7 +60,7 @@ public class ChatService {
                 new ChatMessage(session, ChatMessageRole.USER, content)
         );
 
-        String assistantContent = "echo: " + content;
+        String assistantContent = nextQuestionGenerator.generate(content);
         ChatMessage assistantMessage = chatMessageRepository.save(
                 new ChatMessage(session, ChatMessageRole.ASSISTANT, assistantContent)
         );
