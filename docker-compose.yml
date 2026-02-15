@@ -18,5 +18,27 @@ services:
       --collation-server=utf8mb4_unicode_ci
       --default-time-zone=+09:00
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: style-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: style-ollama-pull
+    depends_on:
+      - ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "sleep 5 && ollama pull llama3"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    restart: "no"
+
 volumes:
   mysql_data:
+  ollama_data:

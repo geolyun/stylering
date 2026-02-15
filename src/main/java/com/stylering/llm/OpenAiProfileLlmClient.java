@@ -2,24 +2,18 @@ package com.stylering.llm;
 
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.json.JsonParser;
 import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-@Component
 public class OpenAiProfileLlmClient implements ProfileLlmClient {
 
     private final RestClient llmRestClient;
     private final String model;
     private final JsonParser jsonParser = JsonParserFactory.getJsonParser();
 
-    public OpenAiProfileLlmClient(
-            RestClient llmRestClient,
-            @Value("${llm.openai.profile-model:${llm.openai.model:gpt-4o-mini}}") String model
-    ) {
+    public OpenAiProfileLlmClient(RestClient llmRestClient, String model) {
         this.llmRestClient = llmRestClient;
         this.model = model;
     }

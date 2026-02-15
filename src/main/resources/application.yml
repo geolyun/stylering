@@ -2,7 +2,7 @@ spring:
   application:
     name: ${SPRING_APP_NAME:stylering}
   profiles:
-    default: dev
+    default: dev,local
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
@@ -15,6 +15,7 @@ prompts:
   path: ${PROMPTS_PATH:classpath:prompts}
 
 llm:
+  provider: ${LLM_PROVIDER:OPENAI}
   timeout-ms: ${LLM_TIMEOUT_MS:3000}
   openai:
     base-url: ${LLM_OPENAI_BASE_URL:https://api.openai.com/v1}
