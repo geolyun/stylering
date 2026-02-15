@@ -1,4 +1,5 @@
 Build a preference profile JSON from the recent conversation.
+Mode: {{mode}}
 
 Conversation:
 {{conversation}}
@@ -17,3 +18,5 @@ Schema:
   "confidence": 0.0,
   "summary": "string"
 }
+
+If mode is FINAL, resolve ambiguities conservatively and maximize consistency.

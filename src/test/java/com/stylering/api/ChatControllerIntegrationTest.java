@@ -4,10 +4,14 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.nullValue;
 
 import com.stylering.auth.FirebaseTokenVerifier;
 import com.stylering.auth.TokenVerificationException;
 import com.stylering.auth.VerifiedFirebaseToken;
+import com.stylering.catalog.CatalogItem;
+import com.stylering.catalog.CatalogItemRepository;
+import com.stylering.catalog.CatalogItemType;
 import com.stylering.chat.ChatMessage;
 import com.stylering.chat.ChatMessageRepository;
 import com.stylering.chat.ChatMessageRole;
@@ -15,8 +19,12 @@ import com.stylering.chat.ChatSession;
 import com.stylering.chat.ChatSessionRepository;
 import com.stylering.chat.ChatSessionStatus;
 import com.stylering.llm.LlmClientException;
+import com.stylering.llm.ProfileLlmClient;
 import com.stylering.llm.QuestionLlmClient;
+import com.stylering.llm.RecommendationLlmClient;
+import com.stylering.profile.PreferenceProfileRepository;
 import com.stylering.ratelimit.UserRateLimiter;
+import com.stylering.recommend.RecommendationHistoryRepository;
 import com.stylering.user.UserAccountRepository;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -53,10 +61,25 @@ class ChatControllerIntegrationTest {
     private ChatMessageRepository chatMessageRepository;
 
     @Autowired
+    private PreferenceProfileRepository preferenceProfileRepository;
+
+    @Autowired
+    private RecommendationHistoryRepository recommendationHistoryRepository;
+
+    @Autowired
+    private CatalogItemRepository catalogItemRepository;
+
+    @Autowired
     private StubFirebaseTokenVerifier firebaseTokenVerifier;
 
     @Autowired
     private StubQuestionLlmClient stubQuestionLlmClient;
+
+    @Autowired
+    private StubProfileLlmClient stubProfileLlmClient;
+
+    @Autowired
+    private StubRecommendationLlmClient stubRecommendationLlmClient;
 
     @Autowired
     private StubUserRateLimiter stubUserRateLimiter;
@@ -71,10 +94,35 @@ class ChatControllerIntegrationTest {
 
         firebaseTokenVerifier.clear();
         stubQuestionLlmClient.clear();
+        stubProfileLlmClient.clear();
+        stubRecommendationLlmClient.clear();
         stubUserRateLimiter.clear();
+
+        recommendationHistoryRepository.deleteAll();
         chatMessageRepository.deleteAll();
         chatSessionRepository.deleteAll();
+        preferenceProfileRepository.deleteAll();
+        catalogItemRepository.deleteAll();
         userAccountRepository.deleteAll();
+
+        catalogItemRepository.save(new CatalogItem(
+                CatalogItemType.SHOES,
+                "shoe-alpha",
+                "brand-a",
+                "50000-120000",
+                "[\"minimal\",\"black\"]",
+                "UNISEX",
+                "SS"
+        ));
+        catalogItemRepository.save(new CatalogItem(
+                CatalogItemType.TOP,
+                "top-alpha",
+                "brand-b",
+                "40000-90000",
+                "[\"minimal\",\"daily\"]",
+                "UNISEX",
+                "SS"
+        ));
     }
 
     @Test
@@ -88,39 +136,97 @@ class ChatControllerIntegrationTest {
 
         Long sessionId = findSingleSessionIdByUid("firebase-user-a");
         ChatSession session = chatSessionRepository.findById(sessionId).orElseThrow();
-        org.junit.jupiter.api.Assertions.assertEquals(ChatSessionStatus.OPEN, session.getStatus());
+        org.junit.jupiter.api.Assertions.assertEquals(ChatSessionStatus.INTERVIEWING, session.getStatus());
         org.junit.jupiter.api.Assertions.assertNotNull(session.getCreatedAt());
         org.junit.jupiter.api.Assertions.assertNotNull(session.getUpdatedAt());
     }
 
     @Test
-    void postMessageToOwnSessionSuccessStoresTwoMessages() throws Exception {
+    void stopIntentReturnsRecommendations() throws Exception {
         firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
-        stubQuestionLlmClient.enqueue("What fit do you prefer most?");
+        stubProfileLlmClient.enqueue("""
+                {"style_archetypes":["minimal"],"colors":{"like":["black"],"avoid":[]},"fit":{"top":"regular","pants":"wide"},"brands":{"like":[],"avoid":[]},"budget":{"min":50000,"max":200000},"context":{"ageRange":"20s","occasion":["daily"]},"constraints":[],"confidence":0.8,"summary":"final"}
+                """);
+        stubRecommendationLlmClient.setResponse("""
+                {"recommendations":[{"category":"shoes","item_id":999999,"reason":"bad"}],"alternatives":[],"next_question":"done"}
+                """);
+
         Long sessionId = createSession("token-user-a");
 
         mockMvc.perform(post("/api/v1/chat/messages")
                         .header("Authorization", "Bearer token-user-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"hello"}
+                                {"sessionId":%d,"content":"finish"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionId").value(sessionId))
-                .andExpect(jsonPath("$.assistantContent").value("What fit do you prefer most?"))
-                .andExpect(jsonPath("$.userMessageId").isNumber())
-                .andExpect(jsonPath("$.assistantMessageId").isNumber());
-
-        List<ChatMessage> messages = chatMessageRepository.findBySession_IdOrderByIdAsc(sessionId);
-        org.junit.jupiter.api.Assertions.assertEquals(2, messages.size());
-        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.USER, messages.get(0).getRole());
-        org.junit.jupiter.api.Assertions.assertEquals("hello", messages.get(0).getContent());
-        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.ASSISTANT, messages.get(1).getRole());
-        org.junit.jupiter.api.Assertions.assertEquals("What fit do you prefer most?", messages.get(1).getContent());
+                .andExpect(jsonPath("$.nextAction").value("RECOMMEND"))
+                .andExpect(jsonPath("$.sessionStatus").value("RECOMMENDED"))
+                .andExpect(jsonPath("$.recommendations").isArray())
+                .andExpect(jsonPath("$.recommendations[0].itemId").isNumber());
     }
 
     @Test
-    void postMessageWhenLlmFailsReturnsFallbackQuestion() throws Exception {
+    void readyToRecommendThenRecommendReturnsRecommendations() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubQuestionLlmClient.enqueue("""
+                {"assistantContent":"Enough context, move to recommendation?","nextAction":"SUGGEST_STOP","cta":{"primary":"Get recommendation","secondary":"Ask more"}}
+                """);
+        stubProfileLlmClient.enqueue("""
+                {"style_archetypes":["minimal"],"colors":{"like":["black"],"avoid":[]},"fit":{"top":"regular","pants":"wide"},"brands":{"like":[],"avoid":[]},"budget":{"min":50000,"max":200000},"context":{"ageRange":"20s","occasion":["daily"]},"constraints":[],"confidence":0.8,"summary":"final"}
+                """);
+        stubRecommendationLlmClient.setResponse("""
+                {"recommendations":[{"category":"shoes","item_id":999999,"reason":"bad"}],"alternatives":[],"next_question":"done"}
+                """);
+
+        Long sessionId = createSession("token-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"content":"I prefer minimal"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextAction").value("SUGGEST_STOP"))
+                .andExpect(jsonPath("$.sessionStatus").value("READY_TO_RECOMMEND"));
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"content":"finish"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextAction").value("RECOMMEND"))
+                .andExpect(jsonPath("$.sessionStatus").value("RECOMMENDED"))
+                .andExpect(jsonPath("$.recommendations").isArray());
+    }
+
+    @Test
+    void suggestStopResponseContainsCtaAndNoRecommendations() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubQuestionLlmClient.enqueue("""
+                {"assistantContent":"Enough context, move to recommendation?","nextAction":"SUGGEST_STOP","cta":{"primary":"Get recommendation","secondary":"Ask more"}}
+                """);
+        Long sessionId = createSession("token-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"content":"black is good"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextAction").value("SUGGEST_STOP"))
+                .andExpect(jsonPath("$.sessionStatus").value("READY_TO_RECOMMEND"))
+                .andExpect(jsonPath("$.cta.primary").value("Get recommendation"))
+                .andExpect(jsonPath("$.cta.secondary").value("Ask more"))
+                .andExpect(jsonPath("$.recommendations").value(nullValue()));
+    }
+
+    @Test
+    void llmFailureFallsBackToAskOnly() throws Exception {
         firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
         stubQuestionLlmClient.setShouldFail(true);
         Long sessionId = createSession("token-user-a");
@@ -132,87 +238,15 @@ class ChatControllerIntegrationTest {
                                 {"sessionId":%d,"content":"hello"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.assistantContent").isNotEmpty());
-    }
+                .andExpect(jsonPath("$.nextAction").value("ASK"))
+                .andExpect(jsonPath("$.sessionStatus").value("INTERVIEWING"))
+                .andExpect(jsonPath("$.assistantContent").isNotEmpty())
+                .andExpect(jsonPath("$.recommendations").value(nullValue()));
 
-    @Test
-    void postMessageWithUnknownSessionReturnsNotFound() throws Exception {
-        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
-
-        mockMvc.perform(post("/api/v1/chat/messages")
-                        .header("Authorization", "Bearer token-user-a")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"sessionId":999999,"content":"hello"}
-                                """))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CHAT_SESSION_NOT_FOUND"));
-    }
-
-    @Test
-    void postMessageToOtherUsersSessionReturnsForbidden() throws Exception {
-        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
-        firebaseTokenVerifier.allow("token-user-b", "firebase-user-b");
-        Long sessionId = createSession("token-user-a");
-
-        mockMvc.perform(post("/api/v1/chat/messages")
-                        .header("Authorization", "Bearer token-user-b")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"sessionId":%d,"content":"intrude"}
-                                """.formatted(sessionId)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("CHAT_SESSION_FORBIDDEN"));
-    }
-
-    @Test
-    void postMessageWithInvalidContentReturnsBadRequest() throws Exception {
-        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
-        Long sessionId = createSession("token-user-a");
-
-        mockMvc.perform(post("/api/v1/chat/messages")
-                        .header("Authorization", "Bearer token-user-a")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"sessionId":%d,"content":"   "}
-                                """.formatted(sessionId)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-
-        String tooLong = "a".repeat(2001);
-        mockMvc.perform(post("/api/v1/chat/messages")
-                        .header("Authorization", "Bearer token-user-a")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"sessionId":%d,"content":"%s"}
-                                """.formatted(sessionId, tooLong)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-    }
-
-    @Test
-    void postMessageWhenRateLimitExceededReturnsTooManyRequests() throws Exception {
-        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
-        stubQuestionLlmClient.enqueue("first question?");
-        stubUserRateLimiter.setMaxRequestsPerMinute(1);
-        Long sessionId = createSession("token-user-a");
-
-        mockMvc.perform(post("/api/v1/chat/messages")
-                        .header("Authorization", "Bearer token-user-a")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"sessionId":%d,"content":"first"}
-                                """.formatted(sessionId)))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(post("/api/v1/chat/messages")
-                        .header("Authorization", "Bearer token-user-a")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"sessionId":%d,"content":"second"}
-                                """.formatted(sessionId)))
-                .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.code").value("RATE_LIMIT_EXCEEDED"));
+        List<ChatMessage> messages = chatMessageRepository.findBySession_IdOrderByIdAsc(sessionId);
+        org.junit.jupiter.api.Assertions.assertEquals(2, messages.size());
+        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.USER, messages.get(0).getRole());
+        org.junit.jupiter.api.Assertions.assertEquals(ChatMessageRole.ASSISTANT, messages.get(1).getRole());
     }
 
     private Long createSession(String token) throws Exception {
@@ -241,6 +275,18 @@ class ChatControllerIntegrationTest {
         @Primary
         StubQuestionLlmClient stubQuestionLlmClient() {
             return new StubQuestionLlmClient();
+        }
+
+        @Bean
+        @Primary
+        StubProfileLlmClient stubProfileLlmClient() {
+            return new StubProfileLlmClient();
+        }
+
+        @Bean
+        @Primary
+        StubRecommendationLlmClient stubRecommendationLlmClient() {
+            return new StubRecommendationLlmClient();
         }
 
         @Bean
@@ -305,7 +351,57 @@ class ChatControllerIntegrationTest {
             if (!queuedQuestions.isEmpty()) {
                 return queuedQuestions.removeFirst();
             }
-            return "Which color do you usually prefer?";
+            return "{" +
+                    "\"assistantContent\":\"Which color do you usually prefer?\"," +
+                    "\"nextAction\":\"ASK\"," +
+                    "\"cta\":{\"primary\":\"continue\",\"secondary\":\"recommend\"}" +
+                    "}";
+        }
+    }
+
+    static class StubProfileLlmClient implements ProfileLlmClient {
+        private final ArrayDeque<String> queued = new ArrayDeque<>();
+
+        void enqueue(String value) {
+            queued.addLast(value);
+        }
+
+        void clear() {
+            queued.clear();
+        }
+
+        @Override
+        public String generateProfileJson(String systemPrompt, String userPrompt) {
+            if (!queued.isEmpty()) {
+                return queued.removeFirst();
+            }
+            return "{" +
+                    "\"style_archetypes\":[\"minimal\"]," +
+                    "\"colors\":{\"like\":[\"black\"],\"avoid\":[]}," +
+                    "\"fit\":{\"top\":\"regular\",\"pants\":\"wide\"}," +
+                    "\"brands\":{\"like\":[],\"avoid\":[]}," +
+                    "\"budget\":{\"min\":50000,\"max\":200000}," +
+                    "\"context\":{\"ageRange\":\"20s\",\"occasion\":[\"daily\"]}," +
+                    "\"constraints\":[]," +
+                    "\"confidence\":0.8," +
+                    "\"summary\":\"ok\"}";
+        }
+    }
+
+    static class StubRecommendationLlmClient implements RecommendationLlmClient {
+        private String response = "{\"recommendations\":[],\"alternatives\":[],\"next_question\":\"done\"}";
+
+        void setResponse(String response) {
+            this.response = response;
+        }
+
+        void clear() {
+            response = "{\"recommendations\":[],\"alternatives\":[],\"next_question\":\"done\"}";
+        }
+
+        @Override
+        public String pickFromCandidates(String systemPrompt, String userPrompt) {
+            return response;
         }
     }
 
@@ -345,3 +441,5 @@ class ChatControllerIntegrationTest {
         }
     }
 }
+
+

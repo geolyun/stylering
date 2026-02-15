@@ -55,23 +55,38 @@ public class PreferenceProfileService {
     }
 
     @Transactional
-    public void tryRefreshProfile(UserAccount userAccount, ChatSession session) {
+    public boolean tryRefreshProfile(UserAccount userAccount, ChatSession session) {
         long messageCount = chatMessageRepository.countBySession_Id(session.getId());
         if (messageCount < updateMessageStep) {
-            return;
+            return false;
         }
 
         PreferenceProfile existing = preferenceProfileRepository.findByUser_Id(userAccount.getId()).orElse(null);
         if (!shouldUpdate(messageCount, existing)) {
-            return;
+            return false;
         }
 
+        return refreshProfile(userAccount, session, existing, "INCREMENTAL");
+    }
+
+    @Transactional
+    public boolean finalizeProfile(UserAccount userAccount, ChatSession session) {
+        PreferenceProfile existing = preferenceProfileRepository.findByUser_Id(userAccount.getId()).orElse(null);
+        return refreshProfile(userAccount, session, existing, "FINAL");
+    }
+
+    private boolean refreshProfile(
+            UserAccount userAccount,
+            ChatSession session,
+            PreferenceProfile existing,
+            String mode
+    ) {
         List<ChatMessage> recentDesc = chatMessageRepository.findBySession_IdOrderByCreatedAtDesc(
                 session.getId(),
                 PageRequest.of(0, recentMessageLimit)
         );
         if (recentDesc.isEmpty()) {
-            return;
+            return false;
         }
 
         List<ChatMessage> ordered = new ArrayList<>(recentDesc);
@@ -82,10 +97,11 @@ public class PreferenceProfileService {
                 .reduce((a, b) -> a + "\n" + b)
                 .orElse("");
 
-        String basePrompt = promptTemplateLoader.buildProfilePrompt(conversation);
+        String basePrompt = promptTemplateLoader.buildProfilePrompt(conversation, mode);
         String systemPrompt = promptTemplateLoader.systemPrompt();
         ProfileDraft draft = generateProfileDraft(systemPrompt, basePrompt);
         upsertProfile(userAccount, existing, draft.profileJson(), draft.summary());
+        return true;
     }
 
     @Transactional(readOnly = true)

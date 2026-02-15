@@ -13,6 +13,7 @@ public class PromptTemplateLoader {
 
     private static final String USER_MESSAGE_PLACEHOLDER = "{{user_message}}";
     private static final String CONVERSATION_PLACEHOLDER = "{{conversation}}";
+    private static final String MODE_PLACEHOLDER = "{{mode}}";
     private static final String PROFILE_JSON_PLACEHOLDER = "{{profile_json}}";
     private static final String REQUEST_JSON_PLACEHOLDER = "{{request_json}}";
     private static final String CANDIDATES_JSON_PLACEHOLDER = "{{candidates_json}}";
@@ -41,7 +42,13 @@ public class PromptTemplateLoader {
     }
 
     public String buildProfilePrompt(String conversation) {
-        return buildProfileTemplate.replace(CONVERSATION_PLACEHOLDER, conversation);
+        return buildProfilePrompt(conversation, "INCREMENTAL");
+    }
+
+    public String buildProfilePrompt(String conversation, String mode) {
+        return buildProfileTemplate
+                .replace(CONVERSATION_PLACEHOLDER, conversation)
+                .replace(MODE_PLACEHOLDER, mode);
     }
 
     public String buildRecommendPrompt(String profileJson, String requestJson, String candidatesJson) {

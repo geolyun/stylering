@@ -1,6 +1,8 @@
 package com.stylering.chat;
 
 public enum ChatSessionStatus {
-    OPEN,
-    CLOSED
+    INTERVIEWING,
+    READY_TO_RECOMMEND,
+    STOPPED,
+    RECOMMENDED
 }
