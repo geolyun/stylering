@@ -1,12 +1,15 @@
 package com.stylering.chat;
 
+import com.stylering.api.dto.PostRecommendationsRequest;
 import com.stylering.common.error.ApiClientException;
 import com.stylering.llm.NextQuestionGenerator;
 import com.stylering.profile.PreferenceProfileService;
+import com.stylering.recommend.RecommendationService;
 import com.stylering.ratelimit.UserRateLimiter;
 import com.stylering.user.UserAccount;
 import com.stylering.user.UserAccountService;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +23,8 @@ public class ChatService {
     private final NextQuestionGenerator nextQuestionGenerator;
     private final UserRateLimiter userRateLimiter;
     private final PreferenceProfileService preferenceProfileService;
+    private final StopIntentDetector stopIntentDetector;
+    private final RecommendationService recommendationService;
 
     public ChatService(
             ChatSessionRepository chatSessionRepository,
@@ -27,7 +32,9 @@ public class ChatService {
             UserAccountService userAccountService,
             NextQuestionGenerator nextQuestionGenerator,
             UserRateLimiter userRateLimiter,
-            PreferenceProfileService preferenceProfileService
+            PreferenceProfileService preferenceProfileService,
+            StopIntentDetector stopIntentDetector,
+            RecommendationService recommendationService
     ) {
         this.chatSessionRepository = chatSessionRepository;
         this.chatMessageRepository = chatMessageRepository;
@@ -35,12 +42,14 @@ public class ChatService {
         this.nextQuestionGenerator = nextQuestionGenerator;
         this.userRateLimiter = userRateLimiter;
         this.preferenceProfileService = preferenceProfileService;
+        this.stopIntentDetector = stopIntentDetector;
+        this.recommendationService = recommendationService;
     }
 
     @Transactional
     public Long createSession(String firebaseUid) {
         UserAccount userAccount = userAccountService.getByFirebaseUid(firebaseUid);
-        ChatSession session = new ChatSession(userAccount, ChatSessionStatus.OPEN);
+        ChatSession session = new ChatSession(userAccount, ChatSessionStatus.INTERVIEWING);
         return chatSessionRepository.save(session).getId();
     }
 
@@ -64,28 +73,89 @@ public class ChatService {
                 new ChatMessage(session, ChatMessageRole.USER, content)
         );
 
-        String assistantContent = nextQuestionGenerator.generate(content);
+        if (stopIntentDetector.isStopIntent(content)) {
+            return handleStopIntent(firebaseUid, userAccount, session, userMessage);
+        }
+
+        NextQuestionGenerator.AssistantTurn turn = nextQuestionGenerator.generate(content);
+        NextQuestionGenerator.NextAction nextAction = normalizeNonStopAction(turn.nextAction());
+        session.setStatus(nextAction == NextQuestionGenerator.NextAction.SUGGEST_STOP
+                ? ChatSessionStatus.READY_TO_RECOMMEND
+                : ChatSessionStatus.INTERVIEWING);
+        boolean profileUpdated = preferenceProfileService.tryRefreshProfile(userAccount, session);
+
         ChatMessage assistantMessage = chatMessageRepository.save(
-                new ChatMessage(session, ChatMessageRole.ASSISTANT, assistantContent)
+                new ChatMessage(session, ChatMessageRole.ASSISTANT, turn.assistantContent())
         );
-
-        preferenceProfileService.tryRefreshProfile(userAccount, session);
-
         session.touch(Instant.now());
 
         return new AssistantReply(
                 session.getId(),
                 userMessage.getId(),
                 assistantMessage.getId(),
-                assistantContent
+                turn.assistantContent(),
+                nextAction,
+                session.getStatus(),
+                turn.ctaPrimary(),
+                turn.ctaSecondary(),
+                List.of(),
+                profileUpdated
         );
+    }
+
+    private AssistantReply handleStopIntent(
+            String firebaseUid,
+            UserAccount userAccount,
+            ChatSession session,
+            ChatMessage userMessage
+    ) {
+        session.setStatus(ChatSessionStatus.STOPPED);
+        boolean profileUpdated = preferenceProfileService.finalizeProfile(userAccount, session);
+        RecommendationService.RecommendationResult recommendationResult =
+                recommendationService.recommend(
+                        firebaseUid,
+                        new PostRecommendationsRequest(session.getId(), null, null)
+                );
+        session.setStatus(ChatSessionStatus.RECOMMENDED);
+        String assistantContent = recommendationResult.nextQuestion();
+
+        ChatMessage assistantMessage = chatMessageRepository.save(
+                new ChatMessage(session, ChatMessageRole.ASSISTANT, assistantContent)
+        );
+        session.touch(Instant.now());
+
+        return new AssistantReply(
+                session.getId(),
+                userMessage.getId(),
+                assistantMessage.getId(),
+                assistantContent,
+                NextQuestionGenerator.NextAction.RECOMMEND,
+                session.getStatus(),
+                "추천 보기",
+                "대화 계속",
+                recommendationResult.recommendations(),
+                profileUpdated
+        );
+    }
+
+    private NextQuestionGenerator.NextAction normalizeNonStopAction(NextQuestionGenerator.NextAction action) {
+        if (action == NextQuestionGenerator.NextAction.SUGGEST_STOP) {
+            return NextQuestionGenerator.NextAction.SUGGEST_STOP;
+        }
+        return NextQuestionGenerator.NextAction.ASK;
     }
 
     public record AssistantReply(
             Long sessionId,
             Long userMessageId,
             Long assistantMessageId,
-            String assistantContent
+            String assistantContent,
+            NextQuestionGenerator.NextAction nextAction,
+            ChatSessionStatus sessionStatus,
+            String ctaPrimary,
+            String ctaSecondary,
+            List<RecommendationService.PickedItem> recommendations,
+            boolean profileUpdated
     ) {
     }
 }

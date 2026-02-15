@@ -74,6 +74,10 @@ public class ChatSession {
         return status;
     }
 
+    public void setStatus(ChatSessionStatus status) {
+        this.status = status;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }

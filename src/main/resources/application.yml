@@ -2,19 +2,20 @@ spring:
   application:
     name: ${SPRING_APP_NAME:stylering}
   profiles:
-    default: dev
+    default: dev,local
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
     open-in-view: false
 
 firebase:
-  project-id: ${FIREBASE_PROJECT_ID:demo-project}
+  project-id: ${FIREBASE_PROJECT_ID:stylering-24783}
 
 prompts:
-  path: ${PROMPTS_PATH:docs/prompts}
+  path: ${PROMPTS_PATH:classpath:prompts}
 
 llm:
+  provider: ${LLM_PROVIDER:OPENAI}
   timeout-ms: ${LLM_TIMEOUT_MS:3000}
   openai:
     base-url: ${LLM_OPENAI_BASE_URL:https://api.openai.com/v1}
@@ -26,7 +27,7 @@ llm:
 chat:
   rate-limit:
     per-minute: ${CHAT_RATE_LIMIT_PER_MINUTE:30}
-  fallback-question: ${CHAT_FALLBACK_QUESTION:\uC694\uC998 \uAC00\uC7A5 \uC790\uC8FC \uC785\uB294 \uC2A4\uD0C0\uC77C\uC744 \uD55C \uAC00\uC9C0\uB85C \uB9D0\uD574\uC904\uB798\uC694?}
+  fallback-question: ${CHAT_FALLBACK_QUESTION:요즘 가장 자주 입는 스타일을 한 가지로 말해줄래요?}
 
 profile:
   recent-message-limit: ${PROFILE_RECENT_MESSAGE_LIMIT:10}

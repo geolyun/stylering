@@ -1,9 +1,10 @@
-# Local Run (Docker + MySQL)
+# Local Run (Docker + MySQL + Ollama)
 
-## 1) Start MySQL
+## 1) Start MySQL + Ollama
 ```bash
 docker compose up -d
 ```
+`ollama-pull` service pulls `llama3` once at startup.
 
 ## 2) Set environment variables
 PowerShell:

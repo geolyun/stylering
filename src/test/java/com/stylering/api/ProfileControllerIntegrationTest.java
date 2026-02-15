@@ -108,14 +108,14 @@ class ProfileControllerIntegrationTest {
 
         Long userId = userAccountRepository.findByFirebaseUid("firebase-user-a").orElseThrow().getId();
         PreferenceProfile profile = preferenceProfileRepository.findByUser_Id(userId).orElseThrow();
-        Assertions.assertEquals(2, profile.getVersion());
-        Assertions.assertEquals("second", profile.getSummary());
+        Assertions.assertEquals(1, profile.getVersion());
+        Assertions.assertEquals("first", profile.getSummary());
 
         mockMvc.perform(get("/api/v1/profile")
                         .header("Authorization", "Bearer token-user-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.version").value(2))
-                .andExpect(jsonPath("$.summary").value("second"));
+                .andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.summary").value("first"));
     }
 
     @Test
