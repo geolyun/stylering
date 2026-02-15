@@ -12,7 +12,7 @@ firebase:
   project-id: ${FIREBASE_PROJECT_ID:demo-project}
 
 prompts:
-  path: ${PROMPTS_PATH:docs/prompts}
+  path: ${PROMPTS_PATH:classpath:prompts}
 
 llm:
   timeout-ms: ${LLM_TIMEOUT_MS:3000}
