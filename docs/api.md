@@ -24,6 +24,15 @@
   - `assistantMessageId`
   - `assistantContent`
 
+### GET /api/v1/profile
+- Auth: required
+- Behavior: return latest profile for current user
+- Response `200`:
+  - `version`
+  - `profileJson`
+  - `summary`
+  - `updatedAt`
+
 ## Error Status / Codes
 
 - `400 VALIDATION_ERROR`
@@ -36,5 +45,7 @@
   - session id does not exist
 - `429 RATE_LIMIT_EXCEEDED`
   - per-user requests exceeded minute window limit
+- `404 PROFILE_NOT_FOUND`
+  - no profile exists yet
 - `500 INTERNAL_ERROR`
   - unexpected server error
