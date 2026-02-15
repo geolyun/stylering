@@ -2,6 +2,7 @@ package com.stylering.chat;
 
 import com.stylering.common.error.ApiClientException;
 import com.stylering.llm.NextQuestionGenerator;
+import com.stylering.profile.PreferenceProfileService;
 import com.stylering.ratelimit.UserRateLimiter;
 import com.stylering.user.UserAccount;
 import com.stylering.user.UserAccountService;
@@ -18,19 +19,22 @@ public class ChatService {
     private final UserAccountService userAccountService;
     private final NextQuestionGenerator nextQuestionGenerator;
     private final UserRateLimiter userRateLimiter;
+    private final PreferenceProfileService preferenceProfileService;
 
     public ChatService(
             ChatSessionRepository chatSessionRepository,
             ChatMessageRepository chatMessageRepository,
             UserAccountService userAccountService,
             NextQuestionGenerator nextQuestionGenerator,
-            UserRateLimiter userRateLimiter
+            UserRateLimiter userRateLimiter,
+            PreferenceProfileService preferenceProfileService
     ) {
         this.chatSessionRepository = chatSessionRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.userAccountService = userAccountService;
         this.nextQuestionGenerator = nextQuestionGenerator;
         this.userRateLimiter = userRateLimiter;
+        this.preferenceProfileService = preferenceProfileService;
     }
 
     @Transactional
@@ -64,6 +68,8 @@ public class ChatService {
         ChatMessage assistantMessage = chatMessageRepository.save(
                 new ChatMessage(session, ChatMessageRole.ASSISTANT, assistantContent)
         );
+
+        preferenceProfileService.tryRefreshProfile(userAccount, session);
 
         session.touch(Instant.now());
 
