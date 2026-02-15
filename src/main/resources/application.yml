@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: ${SPRING_APP_NAME:stylering}
+  profiles:
+    default: dev
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    open-in-view: false
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID:demo-project}
+
+prompts:
+  path: ${PROMPTS_PATH:docs/prompts}
+
+llm:
+  timeout-ms: ${LLM_TIMEOUT_MS:3000}
+  openai:
+    base-url: ${LLM_OPENAI_BASE_URL:https://api.openai.com/v1}
+    api-key: ${LLM_OPENAI_API_KEY:}
+    model: ${LLM_OPENAI_MODEL:gpt-4o-mini}
+    profile-model: ${LLM_OPENAI_PROFILE_MODEL:${LLM_OPENAI_MODEL:gpt-4o-mini}}
+    recommend-model: ${LLM_OPENAI_RECOMMEND_MODEL:${LLM_OPENAI_MODEL:gpt-4o-mini}}
+
+chat:
+  rate-limit:
+    per-minute: ${CHAT_RATE_LIMIT_PER_MINUTE:30}
+  fallback-question: ${CHAT_FALLBACK_QUESTION:\uC694\uC998 \uAC00\uC7A5 \uC790\uC8FC \uC785\uB294 \uC2A4\uD0C0\uC77C\uC744 \uD55C \uAC00\uC9C0\uB85C \uB9D0\uD574\uC904\uB798\uC694?}
+
+profile:
+  recent-message-limit: ${PROFILE_RECENT_MESSAGE_LIMIT:10}
+  update-message-step: ${PROFILE_UPDATE_MESSAGE_STEP:5}
+  min-update-minutes: ${PROFILE_MIN_UPDATE_MINUTES:5}
+
+catalog:
+  seed:
+    enabled: ${CATALOG_SEED_ENABLED:true}
+
+recommendation:
+  fallback-count: ${RECOMMENDATION_FALLBACK_COUNT:3}
