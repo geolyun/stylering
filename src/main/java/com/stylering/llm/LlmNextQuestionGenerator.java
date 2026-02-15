@@ -13,7 +13,7 @@ public class LlmNextQuestionGenerator implements NextQuestionGenerator {
     public LlmNextQuestionGenerator(
             PromptTemplateLoader promptTemplateLoader,
             QuestionLlmClient questionLlmClient,
-            @Value("${chat.fallback-question:요즘 가장 자주 입는 스타일을 한 가지로 말해줄래요?}") String fallbackQuestion
+            @Value("${chat.fallback-question:\uC694\uC998 \uAC00\uC7A5 \uC790\uC8FC \uC785\uB294 \uC2A4\uD0C0\uC77C\uC744 \uD55C \uAC00\uC9C0\uB85C \uB9D0\uD574\uC904\uB798\uC694?}") String fallbackQuestion
     ) {
         this.promptTemplateLoader = promptTemplateLoader;
         this.questionLlmClient = questionLlmClient;
