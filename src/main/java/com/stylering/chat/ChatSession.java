@@ -3,8 +3,6 @@ package com.stylering.chat;
 import com.stylering.user.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -28,9 +26,8 @@ public class ChatSession {
     @JoinColumn(name = "user_id", nullable = false)
     private UserAccount user;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
-    private ChatSessionStatus status;
+    @Column(nullable = false, length = 32)
+    private String status;
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -43,7 +40,7 @@ public class ChatSession {
 
     public ChatSession(UserAccount user, ChatSessionStatus status) {
         this.user = user;
-        this.status = status;
+        this.status = status.name();
     }
 
     @PrePersist
@@ -71,11 +68,11 @@ public class ChatSession {
     }
 
     public ChatSessionStatus getStatus() {
-        return status;
+        return ChatSessionStatus.fromDatabaseValue(status);
     }
 
     public void setStatus(ChatSessionStatus status) {
-        this.status = status;
+        this.status = status.name();
     }
 
     public Instant getCreatedAt() {

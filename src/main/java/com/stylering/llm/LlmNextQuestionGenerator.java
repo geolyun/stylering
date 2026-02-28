@@ -1,6 +1,8 @@
 package com.stylering.llm;
 
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.json.JsonParser;
 import org.springframework.boot.json.JsonParserFactory;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class LlmNextQuestionGenerator implements NextQuestionGenerator {
 
+    private static final Logger log = LoggerFactory.getLogger(LlmNextQuestionGenerator.class);
     private final PromptTemplateLoader promptTemplateLoader;
     private final QuestionLlmClient questionLlmClient;
     private final String fallbackQuestion;
@@ -25,14 +28,15 @@ public class LlmNextQuestionGenerator implements NextQuestionGenerator {
     }
 
     @Override
-    public AssistantTurn generate(String userMessage) {
+    public AssistantTurn generate(String userMessage, String conversationHistory) {
         try {
             String raw = questionLlmClient.generateNextQuestion(
                     promptTemplateLoader.systemPrompt(),
-                    promptTemplateLoader.buildAskQuestionPrompt(userMessage)
+                    promptTemplateLoader.buildAskQuestionPrompt(userMessage, conversationHistory)
             );
             return parseAssistantTurn(raw);
         } catch (RuntimeException ex) {
+            log.warn("Question generation failed. Fallback question will be returned.", ex);
             return fallbackTurn();
         }
     }
@@ -69,6 +73,7 @@ public class LlmNextQuestionGenerator implements NextQuestionGenerator {
 
             return new AssistantTurn(assistantContent, nextAction, ctaPrimary, ctaSecondary);
         } catch (RuntimeException ex) {
+            log.warn("Failed to parse LLM response as expected JSON. Returning best-effort content.");
             String firstLine = raw.replace("\r", "").lines()
                     .map(String::trim)
                     .filter(line -> !line.isEmpty())

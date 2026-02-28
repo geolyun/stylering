@@ -3,6 +3,7 @@ package com.stylering.api;
 import com.stylering.api.dto.PostRecommendationsRequest;
 import com.stylering.api.dto.PostRecommendationsResponse;
 import com.stylering.api.dto.RecommendationItemResponse;
+import com.stylering.catalog.ShoppingLinkResolver;
 import com.stylering.recommend.RecommendationService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -17,9 +18,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecommendationController {
 
     private final RecommendationService recommendationService;
+    private final ShoppingLinkResolver shoppingLinkResolver;
 
-    public RecommendationController(RecommendationService recommendationService) {
+    public RecommendationController(
+            RecommendationService recommendationService,
+            ShoppingLinkResolver shoppingLinkResolver
+    ) {
         this.recommendationService = recommendationService;
+        this.shoppingLinkResolver = shoppingLinkResolver;
     }
 
     @PostMapping("/recommendations")
@@ -44,7 +50,8 @@ public class RecommendationController {
                         pick.item().getName(),
                         pick.item().getBrand(),
                         pick.item().getPriceRange(),
-                        pick.reason()
+                        pick.reason(),
+                        shoppingLinkResolver.resolve(pick.item())
                 ))
                 .toList();
     }

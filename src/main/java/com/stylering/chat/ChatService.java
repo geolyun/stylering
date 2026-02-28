@@ -77,7 +77,8 @@ public class ChatService {
             return handleStopIntent(firebaseUid, userAccount, session, userMessage);
         }
 
-        NextQuestionGenerator.AssistantTurn turn = nextQuestionGenerator.generate(content);
+        String conversationHistory = buildConversationHistory(session.getId());
+        NextQuestionGenerator.AssistantTurn turn = nextQuestionGenerator.generate(content, conversationHistory);
         NextQuestionGenerator.NextAction nextAction = normalizeNonStopAction(turn.nextAction());
         session.setStatus(nextAction == NextQuestionGenerator.NextAction.SUGGEST_STOP
                 ? ChatSessionStatus.READY_TO_RECOMMEND
@@ -89,6 +90,13 @@ public class ChatService {
         );
         session.touch(Instant.now());
 
+        String ctaPrimary = turn.ctaPrimary();
+        String ctaSecondary = turn.ctaSecondary();
+        if (nextAction == NextQuestionGenerator.NextAction.SUGGEST_STOP) {
+            if (ctaPrimary == null || ctaPrimary.isBlank()) ctaPrimary = "추천 받기";
+            if (ctaSecondary == null || ctaSecondary.isBlank()) ctaSecondary = "대화 계속";
+        }
+
         return new AssistantReply(
                 session.getId(),
                 userMessage.getId(),
@@ -96,8 +104,8 @@ public class ChatService {
                 turn.assistantContent(),
                 nextAction,
                 session.getStatus(),
-                turn.ctaPrimary(),
-                turn.ctaSecondary(),
+                ctaPrimary,
+                ctaSecondary,
                 List.of(),
                 profileUpdated
         );
@@ -136,6 +144,18 @@ public class ChatService {
                 recommendationResult.recommendations(),
                 profileUpdated
         );
+    }
+
+    private String buildConversationHistory(Long sessionId) {
+        List<ChatMessage> messages = chatMessageRepository.findBySession_IdOrderByIdAsc(sessionId);
+        if (messages.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ChatMessage m : messages) {
+            sb.append(m.getRole().name()).append(": ").append(m.getContent()).append("\n");
+        }
+        return sb.toString().trim();
     }
 
     private NextQuestionGenerator.NextAction normalizeNonStopAction(NextQuestionGenerator.NextAction action) {

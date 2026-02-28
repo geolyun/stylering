@@ -6,6 +6,7 @@ public record RecommendationItemResponse(
         String name,
         String brand,
         String priceRange,
-        String reason
+        String reason,
+        String shopUrl
 ) {
 }
