@@ -138,6 +138,54 @@ class ProfileControllerIntegrationTest {
         Assertions.assertEquals(2, stubProfileLlmClient.getCallCount());
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void followupQuestionsIncludedInProfileJsonWhenLlmReturnsIt() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubProfileLlmClient.enqueue("""
+                {"style_archetypes":["minimal"],"colors":{"like":["black"],"avoid":[]},"fit":{"top":"regular","pants":"wide"},"brands":{"like":[],"avoid":[]},"budget":{"min":50000,"max":150000},"context":{"ageRange":"20s","occasion":["campus"]},"constraints":[],"confidence":0.7,"followup_questions":["선호하는 신발 브랜드가 있나요?","주로 어떤 계절 옷을 사나요?"],"summary":"with-followup"}
+                """);
+
+        Long sessionId = createSession("token-user-a");
+        postMessage("token-user-a", sessionId, "m1");
+        postMessage("token-user-a", sessionId, "m2");
+        postMessage("token-user-a", sessionId, "m3");
+
+        Long userId = userAccountRepository.findByFirebaseUid("firebase-user-a").orElseThrow().getId();
+        PreferenceProfile profile = preferenceProfileRepository.findByUser_Id(userId).orElseThrow();
+        Map<String, Object> parsed = jsonParser.parseMap(profile.getProfileJson());
+
+        Object followup = parsed.get("followup_questions");
+        Assertions.assertNotNull(followup, "followup_questions must be present in profileJson");
+        Assertions.assertInstanceOf(List.class, followup);
+        List<String> questions = (List<String>) followup;
+        Assertions.assertEquals(2, questions.size());
+        Assertions.assertEquals("선호하는 신발 브랜드가 있나요?", questions.get(0));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void followupQuestionsDefaultsToEmptyListWhenLlmOmitsIt() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubProfileLlmClient.enqueue("""
+                {"style_archetypes":["casual"],"colors":{"like":[],"avoid":[]},"fit":{"top":"regular","pants":"slim"},"brands":{"like":[],"avoid":[]},"budget":{"min":30000,"max":100000},"context":{"ageRange":"30s","occasion":["daily"]},"constraints":[],"confidence":0.5,"summary":"no-followup"}
+                """);
+
+        Long sessionId = createSession("token-user-a");
+        postMessage("token-user-a", sessionId, "m1");
+        postMessage("token-user-a", sessionId, "m2");
+        postMessage("token-user-a", sessionId, "m3");
+
+        Long userId = userAccountRepository.findByFirebaseUid("firebase-user-a").orElseThrow().getId();
+        PreferenceProfile profile = preferenceProfileRepository.findByUser_Id(userId).orElseThrow();
+        Map<String, Object> parsed = jsonParser.parseMap(profile.getProfileJson());
+
+        Object followup = parsed.get("followup_questions");
+        Assertions.assertNotNull(followup, "followup_questions must default to empty list");
+        Assertions.assertInstanceOf(List.class, followup);
+        Assertions.assertTrue(((List<String>) followup).isEmpty());
+    }
+
     @Test
     void fallbackProfileSavedWhenRetryAlsoFails() throws Exception {
         firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
@@ -158,6 +206,11 @@ class ProfileControllerIntegrationTest {
         Object confidence = parsed.get("confidence");
         Assertions.assertTrue(confidence instanceof Number);
         Assertions.assertEquals(0.1d, ((Number) confidence).doubleValue());
+
+        Object followup = parsed.get("followup_questions");
+        Assertions.assertNotNull(followup, "fallback must include followup_questions");
+        Assertions.assertInstanceOf(List.class, followup);
+        Assertions.assertTrue(((List<?>) followup).isEmpty());
     }
 
     private Long createSession(String token) throws Exception {
@@ -176,7 +229,7 @@ class ProfileControllerIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"%s"}
+                                {"sessionId":%d,"message":"%s"}
                                 """.formatted(sessionId, content)))
                 .andExpect(status().isOk());
     }

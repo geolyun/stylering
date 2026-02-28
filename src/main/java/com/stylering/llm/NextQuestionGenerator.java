@@ -1,7 +1,7 @@
 package com.stylering.llm;
 
 public interface NextQuestionGenerator {
-    AssistantTurn generate(String userMessage);
+    AssistantTurn generate(String userMessage, String conversationHistory);
 
     record AssistantTurn(
             String assistantContent,

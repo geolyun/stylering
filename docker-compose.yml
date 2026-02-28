@@ -34,7 +34,7 @@ services:
       - ollama
     entrypoint: ["/bin/sh", "-c"]
     command: >
-      "sleep 5 && ollama pull llama3"
+      "sleep 5 && ollama pull qwen2.5:3b"
     environment:
       OLLAMA_HOST: http://ollama:11434
     restart: "no"

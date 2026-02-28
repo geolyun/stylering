@@ -41,6 +41,9 @@ public class CatalogItem {
     @Column(length = 32)
     private String season;
 
+    @Column(length = 512)
+    private String productUrl;
+
     protected CatalogItem() {
     }
 
@@ -92,5 +95,9 @@ public class CatalogItem {
 
     public String getSeason() {
         return season;
+    }
+
+    public String getProductUrl() {
+        return productUrl;
     }
 }

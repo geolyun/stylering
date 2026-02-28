@@ -23,20 +23,32 @@ public class OllamaProfileLlmClient implements ProfileLlmClient {
         Map<String, Object> request = Map.of(
                 "model", model,
                 "prompt", prompt,
-                "stream", false
+                "stream", false,
+                "format", "json",
+                "keep_alive", "10m",
+                "options", Map.of("num_predict", 512)
         );
 
         try {
             String response = ollamaRestClient.post()
                     .uri("/api/generate")
                     .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
                     .body(String.class);
             return extractResponseText(response);
         } catch (Exception ex) {
-            throw new LlmClientException("Ollama profile request failed", ex);
+            throw new LlmClientException("Ollama profile request failed: " + summarize(ex), ex);
         }
+    }
+
+    private String summarize(Exception ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return ex.getClass().getSimpleName();
+        }
+        return ex.getClass().getSimpleName() + " - " + message;
     }
 
     private String extractResponseText(String responseBody) {

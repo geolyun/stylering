@@ -1,19 +1,43 @@
-Interview mode: collect style preference slots.
-Known user message:
+현재는 인터뷰 단계이다.
+
+## 목표
+사용자의 패션 성향과 취향을 파악한다.
+
+## 수집해야 할 핵심 정보
+- 스타일 유형 (미니멀, 스트릿, 캐주얼, 포멀 등)
+- 선호 색상 / 피하고 싶은 색상
+- 상의/하의 핏 (슬림, 오버핏, 와이드 등)
+- 예산 범위
+- 착용 상황 (캠퍼스, 출근, 데이트, 여행 등)
+- 금지 소재 또는 브랜드
+
+## 지금까지의 대화 내용
+{{conversation}}
+
+## 질문 전략
+- 위 대화 내용을 참고하여 이미 파악된 정보는 다시 묻지 않는다.
+- 아직 모호하거나 비어있는 정보 중 가장 중요한 1가지만 묻는다.
+- 질문은 구체적으로, 선택지를 2~4개 포함하되 자유 입력 가능하게 한다.
+- 대화 흐름에 자연스럽게 이어지도록 한다.
+
+## 종료 제안 조건
+다음 조건 중 대부분이 충족되면 nextAction을 SUGGEST_STOP으로 설정한다:
+
+- 스타일 유형 파악됨
+- 색상 선호 파악됨
+- 핏 파악됨
+- 예산 대략 파악됨
+- 상황 파악됨
+
+SUGGEST_STOP일 때 assistantContent 예시:
+"지금까지 말씀해주신 걸로 스타일을 꽤 파악했어요. 이제 추천을 받아보실래요?"
+
+## 사용자 최신 메시지
 {{user_message}}
 
-Return JSON only:
-{
-  "assistantContent": "one concise follow-up question or stop suggestion",
-  "nextAction": "ASK|SUGGEST_STOP",
-  "cta": {"primary": "string", "secondary": "string"}
-}
+반드시 JSON 객체만 출력한다. 코드블록이나 설명 텍스트 없이 JSON만 출력한다.
 
-Slot hints:
-- style archetype
-- color likes/avoids
-- fit
-- budget
-- constraints
-
-Suggest stop when at least 4 meaningful slots are inferred.
+출력 필드:
+- assistantContent: 사용자에게 보낼 실제 질문 또는 메시지 문자열
+- nextAction: "ASK" 또는 "SUGGEST_STOP" 중 하나
+- cta: nextAction이 SUGGEST_STOP일 때만 포함하는 JSON 객체. ASK일 때는 이 필드를 아예 포함하지 않는다. 객체 구조: {"primary": "버튼 텍스트", "secondary": "버튼 텍스트"}

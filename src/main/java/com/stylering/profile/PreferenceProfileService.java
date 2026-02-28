@@ -153,6 +153,7 @@ public class PreferenceProfileService {
         normalized.put("context", mapOrDefault(parsed.get("context"), Map.of("ageRange", "", "occasion", List.of())));
         normalized.put("constraints", listOrEmpty(parsed.get("constraints")));
         normalized.put("confidence", numberOrDefault(parsed.get("confidence"), 0.2d));
+        normalized.put("followup_questions", listOrEmpty(parsed.get("followup_questions")));
 
         String profileJson = toJson(normalized);
         String summary = parsed.get("summary") instanceof String s && !s.isBlank()
@@ -172,6 +173,7 @@ public class PreferenceProfileService {
         fallback.put("context", Map.of("ageRange", "", "occasion", List.of()));
         fallback.put("constraints", List.of());
         fallback.put("confidence", 0.1d);
+        fallback.put("followup_questions", List.of());
         return new ProfileDraft(
                 toJson(fallback),
                 "Fallback profile generated due to profile parsing failure."

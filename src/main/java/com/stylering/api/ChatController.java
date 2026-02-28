@@ -5,6 +5,7 @@ import com.stylering.api.dto.CreateChatSessionResponse;
 import com.stylering.api.dto.PostChatMessageRequest;
 import com.stylering.api.dto.PostChatMessageResponse;
 import com.stylering.api.dto.RecommendationItemResponse;
+import com.stylering.catalog.ShoppingLinkResolver;
 import com.stylering.chat.ChatService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatController {
 
     private final ChatService chatService;
+    private final ShoppingLinkResolver shoppingLinkResolver;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, ShoppingLinkResolver shoppingLinkResolver) {
         this.chatService = chatService;
+        this.shoppingLinkResolver = shoppingLinkResolver;
     }
 
     @PostMapping("/sessions")
@@ -38,7 +41,7 @@ public class ChatController {
     ) {
         String firebaseUid = String.valueOf(authentication.getPrincipal());
         ChatService.AssistantReply reply =
-                chatService.postUserMessage(firebaseUid, request.sessionId(), request.content());
+                chatService.postUserMessage(firebaseUid, request.sessionId(), request.message());
 
         return new PostChatMessageResponse(
                 reply.sessionId(),
@@ -64,7 +67,8 @@ public class ChatController {
                         pick.item().getName(),
                         pick.item().getBrand(),
                         pick.item().getPriceRange(),
-                        pick.reason()
+                        pick.reason(),
+                        shoppingLinkResolver.resolve(pick.item())
                 ))
                 .toList();
     }

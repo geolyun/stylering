@@ -14,7 +14,7 @@ class PromptTemplateLoaderTest {
         );
 
         Assertions.assertFalse(loader.systemPrompt().isBlank());
-        Assertions.assertTrue(loader.buildAskQuestionPrompt("hello").contains("hello"));
+        Assertions.assertTrue(loader.buildAskQuestionPrompt("hello", "USER: prev\nASSISTANT: reply").contains("hello"));
         Assertions.assertTrue(loader.buildProfilePrompt("USER: hi").contains("USER: hi"));
     }
 

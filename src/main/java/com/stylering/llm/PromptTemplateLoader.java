@@ -37,8 +37,10 @@ public class PromptTemplateLoader {
         return systemPrompt;
     }
 
-    public String buildAskQuestionPrompt(String userMessage) {
-        return askQuestionsTemplate.replace(USER_MESSAGE_PLACEHOLDER, userMessage);
+    public String buildAskQuestionPrompt(String userMessage, String conversationHistory) {
+        return askQuestionsTemplate
+                .replace(CONVERSATION_PLACEHOLDER, conversationHistory)
+                .replace(USER_MESSAGE_PLACEHOLDER, userMessage);
     }
 
     public String buildProfilePrompt(String conversation) {

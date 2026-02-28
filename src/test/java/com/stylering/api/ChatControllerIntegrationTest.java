@@ -157,13 +157,14 @@ class ChatControllerIntegrationTest {
                         .header("Authorization", "Bearer token-user-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"finish"}
+                                {"sessionId":%d,"message":"finish"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("RECOMMEND"))
                 .andExpect(jsonPath("$.sessionStatus").value("RECOMMENDED"))
                 .andExpect(jsonPath("$.recommendations").isArray())
-                .andExpect(jsonPath("$.recommendations[0].itemId").isNumber());
+                .andExpect(jsonPath("$.recommendations[0].itemId").isNumber())
+                .andExpect(jsonPath("$.recommendations[0].shopUrl").isNotEmpty());
     }
 
     @Test
@@ -185,7 +186,7 @@ class ChatControllerIntegrationTest {
                         .header("Authorization", "Bearer token-user-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"I prefer minimal"}
+                                {"sessionId":%d,"message":"I prefer minimal"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("SUGGEST_STOP"))
@@ -195,7 +196,7 @@ class ChatControllerIntegrationTest {
                         .header("Authorization", "Bearer token-user-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"finish"}
+                                {"sessionId":%d,"message":"finish"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("RECOMMEND"))
@@ -215,7 +216,7 @@ class ChatControllerIntegrationTest {
                         .header("Authorization", "Bearer token-user-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"black is good"}
+                                {"sessionId":%d,"message":"black is good"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("SUGGEST_STOP"))
@@ -235,7 +236,7 @@ class ChatControllerIntegrationTest {
                         .header("Authorization", "Bearer token-user-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sessionId":%d,"content":"hello"}
+                                {"sessionId":%d,"message":"hello"}
                                 """.formatted(sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("ASK"))

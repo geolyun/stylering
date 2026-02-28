@@ -98,7 +98,8 @@ class RecommendationControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recommendations[0].itemId").value(first.getId()))
-                .andExpect(jsonPath("$.recommendations[0].reason").value("budget/category/constraints based fallback"));
+                .andExpect(jsonPath("$.recommendations[0].reason").value("budget/category/constraints based fallback"))
+                .andExpect(jsonPath("$.recommendations[0].shopUrl").isNotEmpty());
     }
 
     @Test
@@ -123,6 +124,7 @@ class RecommendationControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recommendations[0].itemId").value(first.getId()))
+                .andExpect(jsonPath("$.recommendations[0].shopUrl").isNotEmpty())
                 .andExpect(jsonPath("$.nextQuestion").value("다음은 어떤 색상을 원해요?"));
 
         Assertions.assertEquals(1, recommendationHistoryRepository.count());

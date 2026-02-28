@@ -16,7 +16,7 @@ prompts:
 
 llm:
   provider: ${LLM_PROVIDER:OPENAI}
-  timeout-ms: ${LLM_TIMEOUT_MS:3000}
+  timeout-ms: ${LLM_TIMEOUT_MS:120000}
   openai:
     base-url: ${LLM_OPENAI_BASE_URL:https://api.openai.com/v1}
     api-key: ${LLM_OPENAI_API_KEY:}
@@ -40,3 +40,6 @@ catalog:
 
 recommendation:
   fallback-count: ${RECOMMENDATION_FALLBACK_COUNT:3}
+
+shopping:
+  default-platform: ${SHOPPING_DEFAULT_PLATFORM:naver}
