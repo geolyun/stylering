@@ -98,7 +98,7 @@ class RecommendationControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recommendations[0].itemId").value(first.getId()))
-                .andExpect(jsonPath("$.recommendations[0].reason").value("budget/category/constraints based fallback"))
+                .andExpect(jsonPath("$.recommendations[0].reason").value("예산/카테고리/조건 기반 추천"))
                 .andExpect(jsonPath("$.recommendations[0].shopUrl").isNotEmpty());
     }
 
@@ -131,6 +131,130 @@ class RecommendationControllerIntegrationTest {
         RecommendationHistory history = recommendationHistoryRepository.findAll().getFirst();
         Assertions.assertTrue(history.getRequestJson().contains("\"category\":\"shoes\""));
         Assertions.assertTrue(history.getResultJson().contains("\"itemId\":" + first.getId()));
+    }
+
+    @Test
+    void fillsRecommendationsUpToConfiguredMinimumWhenLlmReturnsTooFew() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        CatalogItem first = null;
+        for (int i = 1; i <= 6; i++) {
+            CatalogItem saved = catalogItemRepository.save(new CatalogItem(
+                    CatalogItemType.SHOES,
+                    "shoe-" + i,
+                    "brand-" + i,
+                    "50000-120000",
+                    "[\"minimal\",\"black\"]",
+                    "UNISEX",
+                    "SS"
+            ));
+            if (i == 1) {
+                first = saved;
+            }
+        }
+        createProfile("token-user-a", "firebase-user-a");
+        stubRecommendationLlmClient.setResponse("""
+                {"recommendations":[{"category":"shoes","item_id":%d,"reason":"fits your style"}],"alternatives":[],"next_question":"q?"}
+                """.formatted(first.getId()));
+
+        mockMvc.perform(post("/api/v1/recommendations")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"category":"shoes","budgetMax":200000}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations.length()").value(5))
+                .andExpect(jsonPath("$.recommendations[0].itemId").value(first.getId()));
+    }
+
+    @Test
+    void fillsAlternativesUpToConfiguredMinimumWhenLlmReturnsTooFew() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        long firstId = -1;
+        long sixthId = -1;
+        for (int i = 1; i <= 10; i++) {
+            CatalogItem saved = catalogItemRepository.save(new CatalogItem(
+                    CatalogItemType.SHOES, "shoe-" + i, "brand-" + i,
+                    "50000-120000", "[\"minimal\"]", "UNISEX", "SS"
+            ));
+            if (i == 1) firstId = saved.getId();
+            if (i == 6) sixthId = saved.getId();
+        }
+        createProfile("token-user-a", "firebase-user-a");
+        // LLM이 추천 5개, 대안 1개만 반환 → 대안이 3개(default)로 채워져야 함
+        long f = firstId, s = sixthId;
+        stubRecommendationLlmClient.setResponse("""
+                {"recommendations":[
+                  {"category":"shoes","item_id":%d,"reason":"r1"},
+                  {"category":"shoes","item_id":%d,"reason":"r2"},
+                  {"category":"shoes","item_id":%d,"reason":"r3"},
+                  {"category":"shoes","item_id":%d,"reason":"r4"},
+                  {"category":"shoes","item_id":%d,"reason":"r5"}
+                ],"alternatives":[
+                  {"category":"shoes","item_id":%d,"reason":"a1"}
+                ],"next_question":"q?"}
+                """.formatted(f, f+1, f+2, f+3, f+4, s));
+
+        mockMvc.perform(post("/api/v1/recommendations")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"shoes\",\"budgetMax\":200000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations.length()").value(5))
+                .andExpect(jsonPath("$.alternatives.length()").value(3));
+    }
+
+    @Test
+    void fewerCandidatesThanFallbackCountReturnsAllCandidates() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        CatalogItem first = catalogItemRepository.save(new CatalogItem(
+                CatalogItemType.SHOES, "shoe-1", "brand-a", "50000-120000", "[\"minimal\"]", "UNISEX", "SS"
+        ));
+        catalogItemRepository.save(new CatalogItem(
+                CatalogItemType.SHOES, "shoe-2", "brand-b", "50000-120000", "[\"minimal\"]", "UNISEX", "SS"
+        ));
+        createProfile("token-user-a", "firebase-user-a");
+        // LLM이 빈 응답 → fallback → 후보 2개뿐이므로 recommendations도 2개
+        stubRecommendationLlmClient.setResponse(
+                "{\"recommendations\":[],\"alternatives\":[],\"next_question\":\"q?\"}");
+
+        mockMvc.perform(post("/api/v1/recommendations")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"shoes\",\"budgetMax\":200000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations.length()").value(2));
+    }
+
+    @Test
+    void itemInBothRecommendationsAndAlternativesIsDeduplicatedFromAlternatives() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        CatalogItem item1 = null;
+        for (int i = 1; i <= 8; i++) {
+            CatalogItem saved = catalogItemRepository.save(new CatalogItem(
+                    CatalogItemType.SHOES, "shoe-" + i, "brand-" + i,
+                    "50000-120000", "[\"minimal\"]", "UNISEX", "SS"
+            ));
+            if (i == 1) item1 = saved;
+        }
+        createProfile("token-user-a", "firebase-user-a");
+        // LLM이 item1을 recommendations와 alternatives 양쪽에 반환
+        long id = item1.getId();
+        stubRecommendationLlmClient.setResponse("""
+                {"recommendations":[{"category":"shoes","item_id":%d,"reason":"rec"}],
+                 "alternatives":[{"category":"shoes","item_id":%d,"reason":"alt"}],
+                 "next_question":"q?"}
+                """.formatted(id, id));
+
+        mockMvc.perform(post("/api/v1/recommendations")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"shoes\",\"budgetMax\":200000}"))
+                .andExpect(status().isOk())
+                // item1은 recommendations에만 있어야 함
+                .andExpect(jsonPath("$.recommendations[0].itemId").value(id))
+                // alternatives에 item1과 동일한 itemId가 없어야 함
+                .andExpect(jsonPath("$.alternatives[?(@.itemId == " + id + ")]").isEmpty());
     }
 
     private void createProfile(String token, String firebaseUid) throws Exception {

@@ -13,12 +13,17 @@ import com.stylering.profile.PreferenceProfile;
 import com.stylering.profile.PreferenceProfileService;
 import com.stylering.user.UserAccount;
 import com.stylering.user.UserAccountService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.json.JsonParser;
@@ -40,6 +45,9 @@ public class RecommendationService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final JsonParser jsonParser = JsonParserFactory.getJsonParser();
     private final int fallbackCount;
+    private final int alternativeCount;
+    private final Timer durationTimer;
+    private final Counter fallbackCounter;
 
     public RecommendationService(
             CatalogItemRepository catalogItemRepository,
@@ -50,7 +58,9 @@ public class RecommendationService {
             RecommendationLlmClient recommendationLlmClient,
             RecommendationCandidateFilter recommendationCandidateFilter,
             PromptTemplateLoader promptTemplateLoader,
-            @Value("${recommendation.fallback-count:3}") int fallbackCount
+            @Value("${recommendation.fallback-count:5}") int fallbackCount,
+            @Value("${recommendation.alternative-count:3}") int alternativeCount,
+            MeterRegistry meterRegistry
     ) {
         this.catalogItemRepository = catalogItemRepository;
         this.recommendationHistoryRepository = recommendationHistoryRepository;
@@ -61,6 +71,13 @@ public class RecommendationService {
         this.recommendationCandidateFilter = recommendationCandidateFilter;
         this.promptTemplateLoader = promptTemplateLoader;
         this.fallbackCount = fallbackCount;
+        this.alternativeCount = alternativeCount;
+        this.durationTimer = Timer.builder("llm.recommendation.duration")
+                .description("Duration of LLM recommendation selection")
+                .register(meterRegistry);
+        this.fallbackCounter = Counter.builder("llm.recommendation.fallback")
+                .description("Number of fallbacks in LLM recommendation selection")
+                .register(meterRegistry);
     }
 
     @Transactional
@@ -93,6 +110,7 @@ public class RecommendationService {
             );
         }
 
+        long start = System.nanoTime();
         try {
             String requestJson = writeJson(toMap(request));
             String candidatesJson = writeJson(toPromptCandidates(candidates));
@@ -101,8 +119,11 @@ public class RecommendationService {
                     promptTemplateLoader.systemPrompt(),
                     prompt
             );
+            durationTimer.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
             return parseAndValidateLlm(llmText, candidates);
         } catch (RuntimeException ex) {
+            durationTimer.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+            fallbackCounter.increment();
             return fallbackResult(candidates);
         }
     }
@@ -124,8 +145,10 @@ public class RecommendationService {
             return fallbackResult(candidates);
         }
 
-        List<PickedItem> recommendations = toPickedItems(recs, candidateMap);
-        List<PickedItem> alternatives = toPickedItems(alts, candidateMap);
+        List<PickedItem> recommendations = deduplicate(toPickedItems(recs, candidateMap));
+        List<PickedItem> alternatives = deduplicate(toPickedItems(alts, candidateMap));
+        recommendations = fillRecommendations(recommendations, candidates, fallbackCount);
+        alternatives = fillAlternatives(alternatives, candidates, recommendations, alternativeCount);
         if (recommendations.isEmpty()) {
             return fallbackResult(candidates);
         }
@@ -162,12 +185,12 @@ public class RecommendationService {
     private RecommendationResult fallbackResult(List<CatalogItem> candidates) {
         List<PickedItem> picks = candidates.stream()
                 .limit(fallbackCount)
-                .map(item -> new PickedItem(item, "budget/category/constraints based fallback"))
+                .map(item -> new PickedItem(item, "예산/카테고리/조건 기반 추천"))
                 .toList();
         List<PickedItem> alternatives = candidates.stream()
                 .skip(fallbackCount)
-                .limit(fallbackCount)
-                .map(item -> new PickedItem(item, "fallback alternative"))
+                .limit(alternativeCount)
+                .map(item -> new PickedItem(item, "예산/카테고리/조건 기반 대안"))
                 .toList();
         return new RecommendationResult(
                 picks,
@@ -199,6 +222,7 @@ public class RecommendationService {
         map.put("sessionId", request.sessionId());
         map.put("category", request.category());
         map.put("budgetMax", request.budgetMax());
+        map.put("occasions", request.occasions());
         return map;
     }
 
@@ -253,6 +277,70 @@ public class RecommendationService {
         for (Object obj : list) {
             if (obj instanceof Map<?, ?> m) {
                 out.add((Map<String, Object>) m);
+            }
+        }
+        return out;
+    }
+
+    private List<PickedItem> deduplicate(List<PickedItem> items) {
+        List<PickedItem> out = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        for (PickedItem item : items) {
+            Long id = item.item().getId();
+            if (id != null && seen.add(id)) {
+                out.add(item);
+            }
+        }
+        return out;
+    }
+
+    private List<PickedItem> fillRecommendations(List<PickedItem> existing, List<CatalogItem> candidates, int targetCount) {
+        if (targetCount <= 0) {
+            return existing;
+        }
+        List<PickedItem> out = new ArrayList<>(existing);
+        Set<Long> seen = new HashSet<>();
+        for (PickedItem item : out) {
+            seen.add(item.item().getId());
+        }
+        for (CatalogItem candidate : candidates) {
+            if (out.size() >= targetCount) {
+                break;
+            }
+            if (seen.add(candidate.getId())) {
+                out.add(new PickedItem(candidate, "카탈로그 순위 기반 보완"));
+            }
+        }
+        return out;
+    }
+
+    private List<PickedItem> fillAlternatives(
+            List<PickedItem> existing,
+            List<CatalogItem> candidates,
+            List<PickedItem> recommendations,
+            int targetCount
+    ) {
+        if (targetCount <= 0) {
+            return List.of();
+        }
+        Set<Long> recIds = recommendations.stream()
+                .map(p -> p.item().getId())
+                .collect(Collectors.toSet());
+        // LLM이 recommendations와 alternatives에 동일 아이템을 반환한 경우 제거
+        List<PickedItem> out = existing.stream()
+                .filter(p -> !recIds.contains(p.item().getId()))
+                .collect(Collectors.toCollection(ArrayList::new));
+        Set<Long> excluded = new HashSet<>(recIds);
+        for (PickedItem item : out) {
+            excluded.add(item.item().getId());
+        }
+        for (CatalogItem candidate : candidates) {
+            if (out.size() >= targetCount) {
+                break;
+            }
+            if (!excluded.contains(candidate.getId())) {
+                out.add(new PickedItem(candidate, "카탈로그 순위 기반 대안"));
+                excluded.add(candidate.getId());
             }
         }
         return out;

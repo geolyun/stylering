@@ -1,6 +1,5 @@
 package com.stylering.catalog;
 
-import java.lang.reflect.Field;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -102,16 +101,18 @@ class ShoppingLinkResolverTest {
         Assertions.assertTrue(result.startsWith("https://search.shopping.naver.com/"));
     }
 
+    @Test
+    void malformedHttpsProductUrlFallsBackToSearchUrl() {
+        ShoppingLinkResolver resolver = new ShoppingLinkResolver("naver");
+        CatalogItem item = itemWithProductUrl("brand-a", "shoe-1", "https:///broken url");
+
+        String result = resolver.resolve(item);
+
+        Assertions.assertTrue(result.startsWith("https://search.shopping.naver.com/"));
+    }
+
     private CatalogItem itemWithProductUrl(String brand, String name, String productUrl) {
-        CatalogItem item = new CatalogItem(CatalogItemType.SHOES, name, brand,
-                "50000-100000", "[\"minimal\"]", "UNISEX", "SS");
-        try {
-            Field field = CatalogItem.class.getDeclaredField("productUrl");
-            field.setAccessible(true);
-            field.set(item, productUrl);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        return item;
+        return new CatalogItem(CatalogItemType.SHOES, name, brand,
+                "50000-100000", "[\"minimal\"]", "UNISEX", "SS", productUrl);
     }
 }

@@ -44,6 +44,9 @@ public class CatalogItem {
     @Column(length = 512)
     private String productUrl;
 
+    @Column(length = 512)
+    private String imageUrl;
+
     protected CatalogItem() {
     }
 
@@ -63,6 +66,20 @@ public class CatalogItem {
         this.tagsJson = tagsJson;
         this.gender = gender;
         this.season = season;
+    }
+
+    public CatalogItem(
+            CatalogItemType type,
+            String name,
+            String brand,
+            String priceRange,
+            String tagsJson,
+            String gender,
+            String season,
+            String productUrl
+    ) {
+        this(type, name, brand, priceRange, tagsJson, gender, season);
+        this.productUrl = productUrl;
     }
 
     public Long getId() {
@@ -99,5 +116,9 @@ public class CatalogItem {
 
     public String getProductUrl() {
         return productUrl;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
     }
 }
