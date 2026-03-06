@@ -32,7 +32,7 @@ public class ChatMessage {
     private ChatMessageRole role;
 
     @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String content;
 
     @Column(nullable = false)

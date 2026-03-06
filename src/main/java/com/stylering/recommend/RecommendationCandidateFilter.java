@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +30,11 @@ public class RecommendationCandidateFilter {
         CatalogItemType requestedType = parseType(request.category());
         Integer budgetMax = resolveBudgetMax(profileMap, request.budgetMax());
         Set<String> constraints = lowerSet(readStringList(profileMap.get("constraints")));
+        Set<String> materialsAvoid = collectMaterialsAvoid(profileMap);
         Set<String> preferences = collectPreferences(profileMap);
+        Set<String> occasions = request.occasions() != null ? lowerSet(request.occasions()) : Set.of();
+        Set<String> brandsLike = collectBrandsLike(profileMap);
+        Set<String> brandsAvoid = collectBrandsAvoid(profileMap);
 
         List<ScoredCandidate> scored = new ArrayList<>();
         for (CatalogItem item : allItems) {
@@ -40,8 +45,16 @@ public class RecommendationCandidateFilter {
                 continue;
             }
 
+            // skip avoided brands
+            if (!brandsAvoid.isEmpty() && brandsAvoid.contains(item.getBrand().toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+
             Set<String> tags = lowerSet(readItemTags(item.getTagsJson()));
             if (!disjoint(tags, constraints)) {
+                continue;
+            }
+            if (!materialsAvoid.isEmpty() && !disjoint(tags, materialsAvoid)) {
                 continue;
             }
 
@@ -51,6 +64,16 @@ public class RecommendationCandidateFilter {
                     score++;
                 }
             }
+            for (String occasion : occasions) {
+                if (tags.contains(occasion)) {
+                    score += 2;
+                }
+            }
+            // brand preference bonus
+            if (!brandsLike.isEmpty() && brandsLike.contains(item.getBrand().toLowerCase(Locale.ROOT))) {
+                score += 3;
+            }
+            score += fitBonusForItem(profileMap, item.getType(), tags);
             scored.add(new ScoredCandidate(item, score));
         }
 
@@ -99,7 +122,64 @@ public class RecommendationCandidateFilter {
         if (colorsObj instanceof Map<?, ?> colors) {
             prefs.addAll(lowerSet(readStringList(colors.get("like"))));
         }
+        Object materialObj = profileMap.get("material_pref");
+        if (materialObj instanceof Map<?, ?> material) {
+            prefs.addAll(lowerSet(readStringList(material.get("like"))));
+        }
         return prefs;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> collectMaterialsAvoid(Map<String, Object> profileMap) {
+        Object materialObj = profileMap.get("material_pref");
+        if (!(materialObj instanceof Map<?, ?> material)) {
+            return Set.of();
+        }
+        return lowerSet(readStringList(material.get("avoid")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> collectBrandsLike(Map<String, Object> profileMap) {
+        Object brandsObj = profileMap.get("brands");
+        if (!(brandsObj instanceof Map<?, ?> brands)) {
+            return Set.of();
+        }
+        return lowerSet(readStringList(brands.get("like")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> collectBrandsAvoid(Map<String, Object> profileMap) {
+        Object brandsObj = profileMap.get("brands");
+        if (!(brandsObj instanceof Map<?, ?> brands)) {
+            return Set.of();
+        }
+        return lowerSet(readStringList(brands.get("avoid")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Optional<String> fitPreferenceByType(Map<String, Object> profileMap, CatalogItemType type) {
+        if (type != CatalogItemType.TOP && type != CatalogItemType.PANTS) {
+            return Optional.empty();
+        }
+
+        Object fitObj = profileMap.get("fit");
+        if (!(fitObj instanceof Map<?, ?> fit)) {
+            return Optional.empty();
+        }
+
+        Object raw = type == CatalogItemType.TOP ? fit.get("top") : fit.get("pants");
+        if (raw instanceof String s && !s.isBlank()) {
+            return Optional.of(s.toLowerCase(Locale.ROOT));
+        }
+        return Optional.empty();
+    }
+
+    private int fitBonusForItem(Map<String, Object> profileMap, CatalogItemType type, Set<String> tags) {
+        Optional<String> fitPreference = fitPreferenceByType(profileMap, type);
+        if (fitPreference.isPresent() && tags.contains(fitPreference.get())) {
+            return 1;
+        }
+        return 0;
     }
 
     private List<String> readItemTags(String tagsJson) {

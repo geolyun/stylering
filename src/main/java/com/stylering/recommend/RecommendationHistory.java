@@ -32,11 +32,11 @@ public class RecommendationHistory {
     private ChatSession session;
 
     @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String requestJson;
 
     @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String resultJson;
 
     @Column(nullable = false)

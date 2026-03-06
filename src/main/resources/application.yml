@@ -2,7 +2,7 @@ spring:
   application:
     name: ${SPRING_APP_NAME:stylering}
   profiles:
-    default: dev,local
+    default: dev,prod
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
@@ -10,6 +10,7 @@ spring:
 
 firebase:
   project-id: ${FIREBASE_PROJECT_ID:stylering-24783}
+  service-account-path: ${FIREBASE_SERVICE_ACCOUNT_PATH:}
 
 prompts:
   path: ${PROMPTS_PATH:classpath:prompts}
@@ -28,18 +29,36 @@ chat:
   rate-limit:
     per-minute: ${CHAT_RATE_LIMIT_PER_MINUTE:30}
   fallback-question: ${CHAT_FALLBACK_QUESTION:요즘 가장 자주 입는 스타일을 한 가지로 말해줄래요?}
+  max-interview-turns: ${CHAT_MAX_INTERVIEW_TURNS:8}
 
 profile:
   recent-message-limit: ${PROFILE_RECENT_MESSAGE_LIMIT:10}
-  update-message-step: ${PROFILE_UPDATE_MESSAGE_STEP:5}
-  min-update-minutes: ${PROFILE_MIN_UPDATE_MINUTES:5}
+  update-message-step: ${PROFILE_UPDATE_MESSAGE_STEP:3}
+  min-update-minutes: ${PROFILE_MIN_UPDATE_MINUTES:2}
 
 catalog:
   seed:
     enabled: ${CATALOG_SEED_ENABLED:true}
 
 recommendation:
-  fallback-count: ${RECOMMENDATION_FALLBACK_COUNT:3}
+  fallback-count: ${RECOMMENDATION_FALLBACK_COUNT:5}
+  alternative-count: ${RECOMMENDATION_ALTERNATIVE_COUNT:3}
 
 shopping:
   default-platform: ${SHOPPING_DEFAULT_PLATFORM:naver}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs

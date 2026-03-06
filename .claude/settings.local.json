@@ -10,7 +10,11 @@
       "Bash(cd /c/vibe/stylering && ./gradlew compileJava -q 2>&1)",
       "Bash(docker ps:*)",
       "Bash(cd /c/vibe/stylering && export DB_HOST=localhost DB_PORT=3307 DB_NAME=style DB_USER=style_user DB_PASS=style_pass && ./gradlew test 2>&1)",
-      "Bash(curl -s -X POST http://localhost:11434/api/generate \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\n    \"model\": \"qwen2.5:3b\",\n    \"prompt\": \"너는 AI 스타일 코치다.\\\\n\\\\n현재는 인터뷰 단계이다. 사용자 메시지: \\\\\"안녕하세요\\\\\"\\\\n\\\\n반드시 JSON 객체만 출력한다. 출력 필드: assistantContent\\(사용자에게 보낼 한국어 문장\\), nextAction\\(ASK 또는 SUGGEST_STOP\\), cta\\(SUGGEST_STOP일때만 포함\\)\",\n    \"stream\": false,\n    \"format\": \"json\",\n    \"options\": {\"num_predict\": 128}\n  }' | python -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\(r['response']\\)\" 2>&1)"
+      "Bash(curl -s -X POST http://localhost:11434/api/generate \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\n    \"model\": \"qwen2.5:3b\",\n    \"prompt\": \"너는 AI 스타일 코치다.\\\\n\\\\n현재는 인터뷰 단계이다. 사용자 메시지: \\\\\"안녕하세요\\\\\"\\\\n\\\\n반드시 JSON 객체만 출력한다. 출력 필드: assistantContent\\(사용자에게 보낼 한국어 문장\\), nextAction\\(ASK 또는 SUGGEST_STOP\\), cta\\(SUGGEST_STOP일때만 포함\\)\",\n    \"stream\": false,\n    \"format\": \"json\",\n    \"options\": {\"num_predict\": 128}\n  }' | python -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\(r['response']\\)\" 2>&1)",
+      "Bash(./gradlew compileJava:*)",
+      "WebSearch",
+      "Bash(xargs grep:*)",
+      "Bash(grep:*)"
     ]
   }
 }

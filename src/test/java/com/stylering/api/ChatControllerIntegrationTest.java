@@ -1,6 +1,7 @@
 package com.stylering.api;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -227,6 +228,220 @@ class ChatControllerIntegrationTest {
     }
 
     @Test
+    void listSessionsReturnsUserSessions() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        firebaseTokenVerifier.allow("token-user-b", "firebase-user-b");
+
+        // user-a: 2 sessions
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a"))
+                .andExpect(status().isOk());
+
+        // user-b's session must NOT appear in user-a's list
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-b"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].sessionId").isNumber())
+                .andExpect(jsonPath("$[0].status").value("INTERVIEWING"));
+    }
+
+    @Test
+    void getSessionMessagesReturnsMessagesInOrder() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        Long sessionId = createSession("token-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"message":"hello"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/chat/sessions/{id}/messages", sessionId)
+                        .header("Authorization", "Bearer token-user-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].role").value("user"))
+                .andExpect(jsonPath("$[1].role").value("assistant"))
+                .andExpect(jsonPath("$[0].content").value("hello"));
+    }
+
+    @Test
+    void getSessionMessagesOfOtherUserReturnsForbidden() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        firebaseTokenVerifier.allow("token-user-b", "firebase-user-b");
+        Long sessionId = createSession("token-user-a");
+
+        mockMvc.perform(get("/api/v1/chat/sessions/{id}/messages", sessionId)
+                        .header("Authorization", "Bearer token-user-b"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void postMessageToRecommendedSessionReturnsConflict() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+        stubProfileLlmClient.enqueue("""
+                {"style_archetypes":["minimal"],"colors":{"like":["black"],"avoid":[]},"fit":{"top":"regular","pants":"wide"},"brands":{"like":[],"avoid":[]},"budget":{"min":50000,"max":200000},"context":{"ageRange":"20s","occasion":["daily"]},"constraints":[],"confidence":0.8,"summary":"final"}
+                """);
+
+        Long sessionId = createSession("token-user-a");
+
+        // 세션을 RECOMMENDED 상태로 전환
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"message":"finish"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionStatus").value("RECOMMENDED"));
+
+        // 이미 닫힌 세션에 메시지 전송 → 409
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"message":"another message"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void createSessionWithStructuredInputSeedsProfile() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"budgetMax":100000,"fitTop":"overfit","occasions":["daily","office"]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").isNumber());
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, preferenceProfileRepository.count());
+    }
+
+    @Test
+    void createSessionWithoutBodySeedsNoProfile() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").isNumber());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, preferenceProfileRepository.count());
+    }
+
+    @Test
+    void createSessionWithBlankStringFieldsDoesNotSeedProfile() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fitTop":"","fitPants":"","height":""}
+                                """))
+                .andExpect(status().isOk());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, preferenceProfileRepository.count());
+    }
+
+    @Test
+    void structuredInputConfirmedAxesAppearsInLlmPrompt() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"budgetMax":100000,"fitTop":"overfit","occasions":["daily"]}
+                                """))
+                .andExpect(status().isOk());
+
+        Long sessionId = findSingleSessionIdByUid("firebase-user-a");
+
+        mockMvc.perform(post("/api/v1/chat/messages")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sessionId":%d,"message":"안녕하세요"}
+                                """.formatted(sessionId)))
+                .andExpect(status().isOk());
+
+        String lastPrompt = stubQuestionLlmClient.getLastUserPrompt();
+        org.junit.jupiter.api.Assertions.assertNotNull(lastPrompt, "LLM must have been called");
+        org.junit.jupiter.api.Assertions.assertTrue(lastPrompt.contains("100,000원"), "Prompt should contain budget");
+        org.junit.jupiter.api.Assertions.assertTrue(lastPrompt.contains("오버핏"), "Prompt should contain fit");
+        org.junit.jupiter.api.Assertions.assertTrue(lastPrompt.contains("데일리"), "Prompt should contain occasion");
+    }
+
+    @Test
+    void seedFromStructuredPreservesExistingLlmDerivedFields() throws Exception {
+        firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
+
+        // 기존 프로필을 직접 DB에 심어둔다
+        // (유저 계정은 첫 세션 생성 시 자동으로 만들어짐)
+        Long dummySessionId = createSession("token-user-a");
+        com.stylering.user.UserAccount user =
+                userAccountRepository.findByFirebaseUid("firebase-user-a").orElseThrow();
+
+        String existingJson = """
+                {"style_archetypes":["minimal"],"colors":{"like":["black"],"avoid":[]},"fit":{"top":"slim","pants":"straight"},"brands":{"like":["nike"],"avoid":[]},"budget":{"min":null,"max":null},"context":{"ageRange":"20s","occasion":[]},"constraints":["no polyester"],"confidence":0.6,"followup_questions":[],"material_pref":{"prefer":["cotton"],"avoid":["polyester"]},"shopping_intent":["코트 필요"],"style_references":["BTS 뷔"],"body_type":{"height":"regular"},"summary":"llm"}
+                """;
+        preferenceProfileRepository.save(
+                new com.stylering.profile.PreferenceProfile(user, 1, existingJson.trim(), "llm profile"));
+
+        // 구조화 입력으로 새 세션 생성 → seed merge 발생
+        mockMvc.perform(post("/api/v1/chat/sessions")
+                        .header("Authorization", "Bearer token-user-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"budgetMax":80000,"fitTop":"overfit"}
+                                """))
+                .andExpect(status().isOk());
+
+        // 프로필이 여전히 1개 (upsert)
+        org.junit.jupiter.api.Assertions.assertEquals(1, preferenceProfileRepository.count());
+
+        com.stylering.profile.PreferenceProfile merged =
+                preferenceProfileRepository.findByUser_Id(user.getId()).orElseThrow();
+
+        // LLM 유래 필드 보존 검증
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("\"minimal\""), "style_archetypes must be preserved");
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("cotton"), "material_pref must be preserved");
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("BTS"), "style_references must be preserved");
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("코트 필요"), "shopping_intent must be preserved");
+
+        // 구조화 입력으로 override된 필드 검증
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("80000"), "budget.max must be overridden");
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("overfit"), "fitTop must be overridden");
+
+        // 구조화 입력에 없는 서브 필드는 기존 보존 (field-level patch merge)
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("straight"), "fitPants must be preserved when not in structured input");
+        org.junit.jupiter.api.Assertions.assertTrue(
+                merged.getProfileJson().contains("20s"), "context.ageRange must always be preserved");
+    }
+
+    @Test
     void llmFailureFallsBackToAskOnly() throws Exception {
         firebaseTokenVerifier.allow("token-user-a", "firebase-user-a");
         stubQuestionLlmClient.setShouldFail(true);
@@ -330,6 +545,7 @@ class ChatControllerIntegrationTest {
 
         private final ArrayDeque<String> queuedQuestions = new ArrayDeque<>();
         private volatile boolean shouldFail;
+        private volatile String lastUserPrompt;
 
         void enqueue(String question) {
             queuedQuestions.addLast(question);
@@ -339,13 +555,19 @@ class ChatControllerIntegrationTest {
             this.shouldFail = shouldFail;
         }
 
+        String getLastUserPrompt() {
+            return lastUserPrompt;
+        }
+
         void clear() {
             shouldFail = false;
+            lastUserPrompt = null;
             queuedQuestions.clear();
         }
 
         @Override
         public String generateNextQuestion(String systemPrompt, String userPrompt) {
+            this.lastUserPrompt = userPrompt;
             if (shouldFail) {
                 throw new LlmClientException("forced failure");
             }

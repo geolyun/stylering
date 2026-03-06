@@ -51,6 +51,7 @@ public class RecommendationController {
                         pick.item().getBrand(),
                         pick.item().getPriceRange(),
                         pick.reason(),
+                        pick.item().getImageUrl(),
                         shoppingLinkResolver.resolve(pick.item())
                 ))
                 .toList();

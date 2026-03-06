@@ -1,6 +1,7 @@
 package com.stylering.catalog;
 
 import java.net.URLEncoder;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -18,8 +19,11 @@ public class ShoppingLinkResolver {
 
     public String resolve(CatalogItem item) {
         String productUrl = item.getProductUrl();
-        if (productUrl != null && !productUrl.isBlank() && isSafeUrl(productUrl)) {
-            return productUrl;
+        if (productUrl != null) {
+            String normalized = productUrl.trim();
+            if (!normalized.isBlank() && isSafeUrl(normalized)) {
+                return normalized;
+            }
         }
         String query = URLEncoder.encode(
                 item.getBrand() + " " + item.getName(),
@@ -32,7 +36,19 @@ public class ShoppingLinkResolver {
     }
 
     private boolean isSafeUrl(String url) {
-        String lower = url.toLowerCase();
-        return lower.startsWith("https://") || lower.startsWith("http://");
+        try {
+            URI uri = URI.create(url);
+            String scheme = uri.getScheme();
+            if (scheme == null) {
+                return false;
+            }
+            String lowerScheme = scheme.toLowerCase();
+            if (!"http".equals(lowerScheme) && !"https".equals(lowerScheme)) {
+                return false;
+            }
+            return uri.getHost() != null && !uri.getHost().isBlank();
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 }

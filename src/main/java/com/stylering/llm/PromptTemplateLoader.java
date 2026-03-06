@@ -13,6 +13,8 @@ public class PromptTemplateLoader {
 
     private static final String USER_MESSAGE_PLACEHOLDER = "{{user_message}}";
     private static final String CONVERSATION_PLACEHOLDER = "{{conversation}}";
+    private static final String FOLLOWUP_QUESTIONS_PLACEHOLDER = "{{followup_questions}}";
+    private static final String CONFIRMED_AXES_PLACEHOLDER = "{{confirmed_axes}}";
     private static final String MODE_PLACEHOLDER = "{{mode}}";
     private static final String PROFILE_JSON_PLACEHOLDER = "{{profile_json}}";
     private static final String REQUEST_JSON_PLACEHOLDER = "{{request_json}}";
@@ -38,7 +40,18 @@ public class PromptTemplateLoader {
     }
 
     public String buildAskQuestionPrompt(String userMessage, String conversationHistory) {
+        return buildAskQuestionPrompt(userMessage, conversationHistory, "");
+    }
+
+    public String buildAskQuestionPrompt(String userMessage, String conversationHistory, String followupQuestions) {
+        return buildAskQuestionPrompt(userMessage, conversationHistory, followupQuestions, "");
+    }
+
+    public String buildAskQuestionPrompt(String userMessage, String conversationHistory,
+                                          String followupQuestions, String confirmedAxes) {
         return askQuestionsTemplate
+                .replace(CONFIRMED_AXES_PLACEHOLDER, confirmedAxes != null ? confirmedAxes : "")
+                .replace(FOLLOWUP_QUESTIONS_PLACEHOLDER, followupQuestions != null ? followupQuestions : "")
                 .replace(CONVERSATION_PLACEHOLDER, conversationHistory)
                 .replace(USER_MESSAGE_PLACEHOLDER, userMessage);
     }

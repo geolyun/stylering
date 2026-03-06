@@ -42,11 +42,41 @@ class RecommendationCandidateFilterTest {
         List<CatalogItem> filtered = filter.filter(
                 List.of(shoesAllowed, shoesBlocked, shoesOverBudget, pants),
                 profile,
-                new PostRecommendationsRequest(null, "shoes", 200000)
+                new PostRecommendationsRequest(null, "shoes", 200000, null)
         );
 
         Assertions.assertEquals(1, filtered.size());
         Assertions.assertEquals(shoesAllowed.getId(), filtered.getFirst().getId());
+    }
+
+    @Test
+    void fitBonusAppliedOnlyToMatchingApparelCategory() throws Exception {
+        CatalogItem shoes = withId(new CatalogItem(
+                CatalogItemType.SHOES, "shoe", "brand-a", "50000-120000", "[\"regular\"]",
+                "UNISEX", "SS"
+        ), 1L);
+        CatalogItem top = withId(new CatalogItem(
+                CatalogItemType.TOP, "top", "brand-b", "50000-120000", "[\"regular\"]",
+                "UNISEX", "SS"
+        ), 2L);
+
+        Map<String, Object> profile = Map.of(
+                "style_archetypes", List.of(),
+                "colors", Map.of("like", List.of(), "avoid", List.of()),
+                "constraints", List.of(),
+                "fit", Map.of("top", "regular", "pants", "wide"),
+                "budget", Map.of("max", 200000)
+        );
+
+        List<CatalogItem> filtered = filter.filter(
+                List.of(shoes, top),
+                profile,
+                new PostRecommendationsRequest(null, null, 200000, null)
+        );
+
+        Assertions.assertEquals(2, filtered.size());
+        Assertions.assertEquals(top.getId(), filtered.getFirst().getId());
+        Assertions.assertEquals(shoes.getId(), filtered.get(1).getId());
     }
 
     private CatalogItem withId(CatalogItem item, Long id) throws Exception {

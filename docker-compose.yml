@@ -39,6 +39,16 @@ services:
       OLLAMA_HOST: http://ollama:11434
     restart: "no"
 
+  redis:
+    image: redis:7-alpine
+    container_name: style-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
 volumes:
   mysql_data:
   ollama_data:
+  redis_data:
